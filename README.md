@@ -113,6 +113,11 @@ docker logs <container-id>
 - Provide clean token (no trailing newline) or let the script strip CR/LF.
 - Do not pass tokens via command history; use env file or secrets manager.
 
+3. Runner disconnects:
+- Check container health
+- Verify GitHub connectivity
+- Review Actions logs in GitHub
+
 ### Maintenance
 
 1. Monitor runner status:
@@ -125,7 +130,7 @@ docker build -t github-actions-runner:1.0.1 .
 
 # Stop old runner and start new one
 docker stop <container-id>
-docker run -d [... env ...] github-actions-runner:1.0.1
+docker run -d [... environment variables ...] github-actions-runner:1.0.1
 ```
 
 ## Dockerfile — detailed explanation
