@@ -15,8 +15,8 @@ Custom GitHub Actions runner container image with configurable registration.
 ```
 github-actions-runner/
 ├── Dockerfile          # Container image definition
-├── entrypoint.sh      # Runner registration and startup script
-└── README.md          # This documentation
+├── entrypoint.sh       # Runner registration and startup script
+└── README.md           # This documentation
 ```
 
 ## Quick Start
@@ -39,10 +39,11 @@ docker run -d --restart always \
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `REPO_URL` | Yes | GitHub repository or organization URL |
-| `GITHUB_PAT` | Yes | GitHub Personal Access Token |
+| `REPO_URL` | Yes | GitHub repository or organization URL (e.g. https://github.com/org/repo) |
+| `GITHUB_PAT` | Yes | GitHub Personal Access Token (no whitespace/newlines) |
 | `LABELS` | No | Custom labels for runner (comma-separated) |
 | `RUNNER_WORKDIR` | No | Custom work directory (default: `/tmp/_work`) |
+| `REGISTRATION_TOKEN_API_URL` | No | Optional internal endpoint that returns {"token":"..."} or a GitHub API URL |
 
 ## Using in Workflows
 
@@ -63,8 +64,11 @@ jobs:
 
 ## Security Considerations
 
-- Never commit PATs or sensitive information
-- Use GitHub Secrets for sensitive data
+- Never commit PATs or sensitive information.
+- Use GitHub Secrets for sensitive data.
+- Rotate PATs immediately if exposed.
+- Limit PAT scopes to the minimum required.
+- Prefer short-lived tokens or an internal service that vends registration tokens.
 - Rotate PATs regularly
 - Review runner access permissions
 - Consider network isolation requirements
@@ -100,14 +104,14 @@ USER runner
 # Check container logs
 docker logs <container-id>
 
-# Verify PAT permissions
+# Verify PAT permissions and REPO_URL
 # Ensure network connectivity
 ```
 
-2. Runner disconnects:
-- Check container health
-- Verify GitHub connectivity
-- Review Actions logs in GitHub
+2. "New-line characters are not allowed in header values." or whitespace errors:
+- Ensure GITHUB_PAT and REGISTRATION_TOKEN_API_URL have no CR/LF or whitespace.
+- Provide clean token (no trailing newline) or let the script strip CR/LF.
+- Do not pass tokens via command history; use env file or secrets manager.
 
 ### Maintenance
 
@@ -119,12 +123,120 @@ docker logs <container-id>
 # Build new version
 docker build -t github-actions-runner:1.0.1 .
 
-# Stop old runners
+# Stop old runner and start new one
 docker stop <container-id>
-
-# Start new version
-docker run -d [... environment variables ...] github-actions-runner:1.0.1
+docker run -d [... env ...] github-actions-runner:1.0.1
 ```
+
+## Dockerfile — detailed explanation
+
+This section explains the Dockerfile used to build the image.
+
+- FROM ubuntu:24.04
+  - Base image. Choose an LTS version for stability.
+
+- ENV DEBIAN_FRONTEND=noninteractive \
+      RUNNER_USER=runner \
+      RUNNER_HOME=/home/runner \
+      RUNNER_WORKDIR=/tmp/_work
+  - Sets defaults: non-interactive apt, non-root user name, runner home, and workdir.
+
+- ENV HOME=${RUNNER_HOME}
+  - Ensures $HOME is set for the runner user so scripts relying on $HOME work correctly.
+
+- apt-get update && apt-get install -y --no-install-recommends [...]
+  - Installs minimal required packages (curl, jq, git, tar, unzip, docker CLI, etc.).
+  - Keep the image minimal; language runtimes (Python/Node) should be added in derived images if needed.
+
+- RUN curl -sL https://aka.ms/InstallAzureCLIDeb | bash && az version
+  - Installs Azure CLI if you need Azure tooling. Remove if not required.
+
+- RUN apt-get update && apt-get install -y --no-install-recommends <libs>
+  - Installs shared libraries required by the GitHub Actions runner binaries.
+
+- RUN useradd -m -d ${RUNNER_HOME} -s /bin/bash ${RUNNER_USER} \
+      && mkdir -p ${RUNNER_HOME}/actions-runner ${RUNNER_WORKDIR} \
+      && chown -R ${RUNNER_USER}:${RUNNER_USER} ${RUNNER_HOME} ${RUNNER_WORKDIR} \
+      && usermod -aG docker ${RUNNER_USER}
+  - Creates a dedicated non-root user for running the runner process and prepares directories.
+  - Adds the user to the docker group so workflows that require docker (docker CLI) can run containers. (On some hosts you may prefer mounting docker socket and managing permissions on the host side.)
+
+- WORKDIR ${RUNNER_HOME}/actions-runner
+  - Sets working directory where the runner will be downloaded and run.
+
+- COPY --chown=${RUNNER_USER}:${RUNNER_USER} entrypoint.sh /entrypoint.sh
+  - Copies entrypoint and sets ownership to the runner user.
+
+- RUN chmod +x /entrypoint.sh
+  - Ensures entrypoint is executable.
+
+- USER ${RUNNER_USER}
+  - Switches to non-root user for runtime to follow least-privilege.
+
+- ENTRYPOINT ["/entrypoint.sh"]
+  - Starts the entrypoint which handles downloading, registering, and running the GitHub Actions runner.
+
+Notes:
+- Keep secrets out of the image. Pass tokens as runtime environment variables or use an internal token vending service.
+- If you need docker-in-docker, consider carefully mounting /var/run/docker.sock and security implications.
+
+## entrypoint.sh — detailed explanation
+
+This file automates runner download, registration, lifecycle, and cleanup.
+
+Key behavior and components:
+
+- #!/usr/bin/env bash; set -euo pipefail
+  - Strict mode: exit on errors, unset vars treated as errors, pipelines fail if any command fails.
+
+- Constants:
+  - RUNNER_DIR="${HOME}/actions-runner"
+  - ARCH="x64"
+  - RUNNER_ALLOW_RUNASROOT (optional)
+
+- log() and error()
+  - log writes human timestamps to stderr to avoid polluting stdout (stdout is reserved for returning token when needed).
+  - error prints and exit with non-zero code.
+
+- Environment validation:
+  - : "${REPO_URL:?...}" ensures REPO_URL is provided.
+  - LABELS defaulted if not set.
+
+- Sanitize inputs:
+  - Strips CR/LF from GITHUB_PAT and REGISTRATION_TOKEN_API_URL to prevent "new-line characters are not allowed in header values".
+  - Validates GITHUB_PAT does not contain whitespace.
+
+- get_registration_token()
+  - Tries these methods (in order):
+    1. If REGISTRATION_TOKEN_API_URL is provided:
+       - If it points to api.github.com, POST to it and include Authorization header when GITHUB_PAT present.
+       - Otherwise, treat it as a custom GET endpoint that returns JSON { "token": "..." }.
+    2. If GITHUB_PAT provided:
+       - Parses REPO_URL to determine host and repo path.
+       - Chooses API base (api.github.com for GitHub.com; https://<host>/api/v3 for GitHub Enterprise).
+       - Builds the correct endpoint for repo or org registration-token and POSTs with Authorization.
+    - Parses JSON and returns the token on stdout. The function logs to stderr only, so command substitutions capture only token.
+
+- Main flow:
+  1. cd ${RUNNER_DIR}
+  2. If runner not present, download the latest GitHub Actions runner tarball for the detected ARCH, extract it.
+  3. raw_token="$(get_registration_token)" — captures token only (logging goes to stderr).
+  4. Sanitizes token: remove CR/LF, validates emptiness, control characters, and whitespace.
+  5. Calls ./config.sh --unattended --url "${REPO_URL}" --token "${token}" ... to register the runner.
+  6. Sets trap cleanup EXIT INT TERM to remove runner registration on shutdown.
+  7. Runs ./run.sh to start the runner loop.
+
+- cleanup()
+  - Attempts to obtain a fresh registration token and unregister the runner via ./config.sh remove --unattended --token "${token}".
+  - This helps keep repository/organization clean after container stops.
+
+Debugging and hardening tips:
+- Keep log() writing to stderr so tokens returned from functions remain clean on stdout.
+- Mask tokens in logs; never print full GITHUB_PAT or registration tokens to persistent logs.
+- If you get whitespace/control-char errors, inspect raw responses with safe masked hex prints (first/last bytes) — do not expose full token.
+- For GitHub Enterprise, ensure api base is constructed as https://HOST/api/v3.
+- Use ephemeral tokens where possible (internal service that vends registration tokens).
+- Run container with a read-only filesystem where possible and mount only the necessary directories.
 
 ## Contributing
 
@@ -133,10 +245,6 @@ docker run -d [... environment variables ...] github-actions-runner:1.0.1
 3. Commit your changes
 4. Push to the branch
 5. Create a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## References
 
