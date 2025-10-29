@@ -1,0 +1,6 @@
+# ignore runner binaries/artifacts and secrets
+runner.tar.gz
+_actions-runner_temp/
+.env
+*.pem
+*.key
