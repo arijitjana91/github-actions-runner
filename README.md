@@ -243,6 +243,104 @@ Debugging and hardening tips:
 - Use ephemeral tokens where possible (internal service that vends registration tokens).
 - Run container with a read-only filesystem where possible and mount only the necessary directories.
 
+---
+
+# 📁 Copy Files & Folders from WSL to Windows (Local Path)
+
+## 🔹 Understanding Path Differences
+
+| Windows Path | WSL Path |
+|--------------|----------|
+| C:\Users\Name | /mnt/c/Users/Name |
+| \ (backslash) | / (forward slash) |
+
+⚠️ Never mix Windows and Linux path formats in the same command.
+
+---
+
+## 🔹 1️⃣ Find Your Current Folder Path in WSL
+
+```bash
+pwd
+```
+
+Example output:
+```
+/home/arijitjana/github-actions-runner
+```
+
+---
+
+## 🔹 2️⃣ Copy a File from WSL to Windows
+
+### Syntax
+```bash
+cp source_file destination_path
+```
+
+### Example
+```bash
+cp /home/arijitjana/github-actions-runner/entrypoint.sh \
+/mnt/c/Users/arijit.jana/Downloads/Git_Runner/
+```
+
+---
+
+## 🔹 3️⃣ Copy a Folder from WSL to Windows
+
+Use `-r` for directories:
+
+```bash
+cp -r /home/arijitjana/project_folder \
+/mnt/c/Users/arijit.jana/Downloads/
+```
+
+---
+
+## 🔹 4️⃣ If Destination Folder Doesn't Exist
+
+Create it first:
+
+```bash
+mkdir -p /mnt/c/Users/arijit.jana/Downloads/Git_Runner
+```
+
+Then copy.
+
+---
+
+## 🔹 5️⃣ Alternative Methods
+
+### Open Current WSL Folder in Windows Explorer
+```bash
+explorer.exe .
+```
+
+### Access WSL from Windows
+In File Explorer address bar:
+```
+\\wsl$
+```
+
+---
+
+## 🔹 6️⃣ Recommended for Large Folders
+
+```bash
+rsync -av /home/arijitjana/project_folder \
+/mnt/c/Users/arijit.jana/Downloads/
+```
+
+---
+
+## ✅ Quick Rules
+
+- Windows C drive in WSL → `/mnt/c/`
+- Use `/` not `\`
+- Use `-r` only for folders
+- Use `pwd` to check your path
+
+
 ## Contributing
 
 1. Fork the repository
