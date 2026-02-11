@@ -340,6 +340,134 @@ rsync -av /home/arijitjana/project_folder \
 - Use `-r` only for folders
 - Use `pwd` to check your path
 
+---
+
+# 🐳 Copy Docker Image from WSL to Windows (Local Machine)
+
+## 📌 Important Concept
+
+Docker images are **not normal files**.  
+You must first export them as a `.tar` file using `docker save`.
+
+---
+
+## 🔹 Step 1: Check Available Docker Images
+
+```bash
+docker images
+```
+
+Example output:
+
+```
+REPOSITORY    TAG       IMAGE ID       SIZE
+my-app        latest    abcd1234       500MB
+```
+
+---
+
+## 🔹 Step 2: Save Docker Image as TAR File
+
+### Syntax
+```bash
+docker save -o output_file.tar image_name:tag
+```
+
+### Example
+```bash
+docker save -o my-app.tar my-app:latest
+```
+
+This creates:
+```
+my-app.tar
+```
+
+Verify:
+```bash
+ls
+```
+
+---
+
+## 🔹 Step 3: Copy TAR File to Windows
+
+Windows `C:` drive inside WSL is mounted at:
+
+```
+/mnt/c/
+```
+
+### Copy Command
+```bash
+cp my-app.tar /mnt/c/Users/your-username/Downloads/
+```
+
+---
+
+## 🔹 🚀 Direct Save to Windows (Skip Copy Step)
+
+You can save directly to Windows path:
+
+```bash
+docker save -o /mnt/c/Users/your-username/Downloads/my-app.tar my-app:latest
+```
+
+---
+
+## 🔹 Step 4: Load Docker Image on Another Machine
+
+```bash
+docker load -i my-app.tar
+```
+
+Verify:
+```bash
+docker images
+```
+
+---
+
+## 🔹 Optional: Share via Docker Hub
+
+Login:
+```bash
+docker login
+```
+
+Tag image:
+```bash
+docker tag my-app yourdockerhubusername/my-app
+```
+
+Push image:
+```bash
+docker push yourdockerhubusername/my-app
+```
+
+---
+
+## ✅ Quick Summary
+
+| Task | Command |
+|------|----------|
+| View images | `docker images` |
+| Save image | `docker save -o file.tar image:tag` |
+| Copy to Windows | `cp file.tar /mnt/c/...` |
+| Load image | `docker load -i file.tar` |
+
+---
+
+## 🧠 Key Reminder
+
+| Windows Path | WSL Format |
+|--------------|------------|
+| C:\Users\Name | /mnt/c/Users/Name |
+| \ (backslash) | / (forward slash) |
+
+Never mix Windows and Linux path formats.
+
+---
 
 ## Contributing
 
