@@ -28,6 +28,8 @@ RUN apt-get update \
     unzip \
     iputils-ping \
     docker.io \
+    dnsutils \
+    net-tools \
  && rm -rf /var/lib/apt/lists/*
 
 # Install Azure CLI (as root)
